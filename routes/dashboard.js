@@ -12,6 +12,12 @@ const {
   takebank,
   reporterror,
   takefeedback,
+  scannedqr,
+  enterotp,
+  startdelivery,
+  getachievements,
+  createachiv,
+  enddelivery,
   getwallet,
 } = require("../controllers/dashboard");
 
@@ -38,5 +44,17 @@ router.post("/takefeedback/:id", takefeedback);
 
 //get wallet
 router.get("/getwallet/:id", getwallet);
+
+//start the delivery
+router.post("/startdelivery/:id/:delid", startdelivery);
+
+//end the delivery
+router.post("/enddelivery/:id/:delid", enddelivery);
+
+//get achievements
+router.get("/getachievements/:id", getachievements);
+
+//create achievements
+router.get("/createachiv", createachiv);
 
 module.exports = router;

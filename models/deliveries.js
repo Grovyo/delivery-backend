@@ -1,14 +1,16 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
-const deliveries = new mongoose.Schema({
+const Deliveries = new mongoose.Schema({
   title: { type: String },
   amount: { type: Number },
   orderId: { type: Number },
   time: { type: Number },
   type: { type: String },
   partner: { type: ObjectId, ref: "DelUser" },
+  mode: { type: String },
   status: { type: String, default: "Not started" },
+  reason: { type: String },
   pickupaddress: {
     streetaddress: { type: String },
     state: { type: String },
@@ -48,6 +50,6 @@ const deliveries = new mongoose.Schema({
   timing: { type: String },
 });
 
-deliveries.index({ title: "text" });
+Deliveries.index({ title: "text" });
 
-module.exports = mongoose.model("Deliveries", deliveries);
+module.exports = mongoose.model("DeliveriesSchema", Deliveries);

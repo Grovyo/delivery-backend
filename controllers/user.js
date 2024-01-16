@@ -4,10 +4,12 @@ const uuid = require("uuid").v4;
 const sharp = require("sharp");
 const Locations = require("../models/locations");
 const natural = require("natural");
+const serviceKey = require("../grovyo-e3603-firebase-adminsdk-3jqvt-b10eb47254.json");
+const admin = require("firebase-admin");
 
 //minio client configuration
 const minioClient = new Minio.Client({
-  endPoint: "minio.grovyo.site",
+  endPoint: "minio.grovyo.xyz",
 
   useSSL: true,
   accessKey: "shreyansh379",
@@ -28,6 +30,12 @@ async function generatePresignedUrl(bucketName, objectName, expiry = 604800) {
     throw new Error("Failed to generate presigned URL");
   }
 }
+
+//firebase initialization for notfication
+admin.initializeApp({
+  credential: admin.credential.cert(serviceKey),
+  databaseURL: "https://grovyo-89dc2.firebaseio.com",
+});
 
 //function to generate random id
 function generateRandomId() {
@@ -98,7 +106,6 @@ exports.usersignup = async (req, res) => {
     phone,
     fullname,
     adharnumber,
-    username,
     liscenenumber,
     email,
     streetaddress,
@@ -122,6 +129,7 @@ exports.usersignup = async (req, res) => {
     accuracy,
     bearing,
   } = req.body;
+
   try {
     if (phone) {
       const photos = [];
@@ -151,6 +159,12 @@ exports.usersignup = async (req, res) => {
         });
       }
 
+      //current location
+      const culoc = {
+        latitude: latitude ? latitude : 0,
+        longitude: longitude ? longitude : 0,
+      };
+
       //address
       const address = {
         streetaddress: streetaddress,
@@ -160,19 +174,13 @@ exports.usersignup = async (req, res) => {
         pincode: pincode,
         country: country,
         coordinates: {
-          latitude: latitude,
-          longitude: longitude,
-          altitude: altitude,
-          provider: provider,
-          accuracy: accuracy,
-          bearing: bearing,
+          latitude: latitude ? latitude : 0,
+          longitude: longitude ? longitude : 0,
+          altitude: altitude ? altitude : 0,
+          provider: provider ? provider : 0,
+          accuracy: accuracy ? accuracy : 0,
+          bearing: bearing ? bearing : 0,
         },
-      };
-
-      //current location
-      const culoc = {
-        latitude: latitude,
-        longitude: longitude,
       };
 
       //activity
@@ -182,10 +190,9 @@ exports.usersignup = async (req, res) => {
         deviceinfo: deviceinfo,
         location: location,
       };
+      //generating a random refid
+      const refid = generateRandomId();
       if (accounttype === "affiliate") {
-        //generating a random refid
-        const refid = generateRandomId();
-
         const user = new User({
           fullname: fullname,
           adharnumber: adharnumber,
@@ -200,13 +207,25 @@ exports.usersignup = async (req, res) => {
           referalid: refid,
           activity: activity,
           photos: photos,
-          username: username,
           currentlocation: culoc,
         });
 
         await user.save();
 
-        res.status(200).json({ user, success: true, userexists: true });
+        await Locations.updateOne;
+        let data = {
+          fullname,
+          email,
+          address,
+          refid,
+          id: user._id,
+          accounttype,
+          isverified: user.isverified,
+          state,
+          city,
+          pin: pincode,
+        };
+        res.status(200).json({ data, success: true, userexists: true });
       } else {
         if (referalid) {
           const checkuser = await User.findOne({ referalid: referalid });
@@ -222,12 +241,13 @@ exports.usersignup = async (req, res) => {
               liscenenumber: liscenenumber,
               notificationtoken: notificationtoken,
               address: address,
-              referalid: referalid,
+              referalid: refid,
               activity: activity,
               photos: photos,
-              username: username,
               currentlocation: culoc,
+              attachedid: referalid,
             });
+
             await user.save();
             const partnerid = {
               id: user?._id,
@@ -240,8 +260,19 @@ exports.usersignup = async (req, res) => {
                 },
               }
             );
-
-            res.status(200).json({ user, success: true, userexists: true });
+            let data = {
+              fullname,
+              email,
+              address,
+              referalid: user.referalid,
+              id: user._id,
+              accounttype,
+              isverified: user.isverified,
+              state,
+              city,
+              pin: pincode,
+            };
+            res.status(200).json({ data, success: true, userexists: true });
           } else {
             res.status(404).json({
               message: "Invalid referal id",
@@ -271,6 +302,179 @@ exports.usersignup = async (req, res) => {
       success: false,
       userexists: false,
     });
+  }
+};
+
+//getinitaldata
+exports.getinitaldata = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ message: "User not found", success: false });
+    } else {
+      let dp = [];
+      for (let i = 0; i < user.photos?.length; i++) {
+        if (user?.photos[i].type === "dp") {
+          const d = await generatePresignedUrl(
+            "documents",
+            user.photos[i].content.toString(),
+            60 * 60
+          );
+          dp.push(d);
+        }
+      }
+
+      res.status(200).json({
+        status: user.accstatus,
+        accounttype: user.accounttype,
+        success: true,
+        data: {
+          fullname: user.fullname,
+          phone: user.phone,
+          email: user.email,
+          id: user._id,
+          refid: user.referalid,
+          dp: dp[0],
+          activestatus: user.activestatus,
+        },
+      });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
+  }
+};
+
+//update user
+exports.updateuser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      phone,
+      email,
+      streetaddress,
+      state,
+      city,
+      pin,
+      country,
+      latitude,
+      longitude,
+      altitude,
+      provider,
+      accuracy,
+      bearing,
+    } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ message: "User not found", success: false });
+    } else {
+      let photos = [];
+      //saving photo
+      for (let i = 0; i < req?.files?.length; i++) {
+        const uuidString = uuid();
+        const bucketName = "documents";
+        const objectName = `${Date.now()}_${uuidString}_${
+          req.files[i].originalname
+        }`;
+
+        await sharp(req.files[i].buffer)
+          .jpeg({ quality: 50 })
+          .toBuffer()
+          .then(async (data) => {
+            await minioClient.putObject(bucketName, objectName, data);
+          })
+          .catch((err) => {
+            console.log(err.message, "-error");
+          });
+
+        const type = req.files[i].fieldname.toLowerCase();
+
+        photos.push({
+          content: objectName,
+          type: type,
+        });
+      }
+
+      //current location
+      const culoc = {
+        latitude: latitude ? latitude : 0,
+        longitude: longitude ? longitude : 0,
+      };
+
+      //address
+      const address = {
+        streetaddress: streetaddress,
+        state: state,
+        city: city,
+        pincode: pin,
+        country: country,
+        coordinates: {
+          latitude: latitude ? latitude : 0,
+          longitude: longitude ? longitude : 0,
+          altitude: altitude ? altitude : 0,
+          provider: provider ? provider : 0,
+          accuracy: accuracy ? accuracy : 0,
+          bearing: bearing ? bearing : 0,
+        },
+      };
+
+      //activity
+      const activity = {
+        time: Date.now(),
+        type: "update",
+        // deviceinfo: deviceinfo,
+        // location: location,
+      };
+
+      //udpate user dp
+      await User.updateOne(
+        {
+          _id: user._id,
+          "photos.type": "dp",
+        },
+        {
+          $set: {
+            "photos.$.content": photos[0].content,
+          },
+        }
+      );
+
+      //udpate other details
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            fullname: name,
+            phone: phone,
+            email: email,
+            address: address,
+            currentlocation: culoc,
+          },
+          $push: {
+            activity: activity,
+          },
+        }
+      );
+      let dp = [];
+      for (let i = 0; i < user.photos?.length; i++) {
+        if (user?.photos[i].type === "dp") {
+          const d = await generatePresignedUrl(
+            "documents",
+            user.photos[i].content.toString(),
+            60 * 60
+          );
+          dp.push(d);
+        }
+      }
+
+      res.status(200).json({ success: true, dp: dp[0], address: user.address });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
   }
 };
 
@@ -402,5 +606,72 @@ exports.approvestore = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Something went wrong", success: false });
+  }
+};
+
+//approve id of delivery partner
+exports.approveid = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ message: "User not found", success: false });
+    } else {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: { accstatus: "active" },
+        }
+      );
+      //sending notification
+      const message = {
+        notification: {
+          title: `Hi, ${user.fullname}`,
+          body: "Your account has been approved!",
+        },
+        data: {
+          screen: "Navbar",
+        },
+        token: user?.notificationtoken,
+      };
+      await admin
+        .messaging()
+        .send(message)
+        .then((response) => {
+          console.log("Successfully sent message");
+        })
+        .catch((error) => {
+          console.log("Error sending message:", error);
+        });
+      res.status(200).json({ success: true });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
+  }
+};
+
+//change active status
+exports.changeactive = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ message: "User not found", success: false });
+    } else {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: { activestatus: status },
+        }
+      );
+      res.status(200).json({ success: true });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
   }
 };

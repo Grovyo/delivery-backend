@@ -3,9 +3,16 @@ const Feedback = require("../models/feedback");
 const Minio = require("minio");
 const uuid = require("uuid").v4;
 const sharp = require("sharp");
+const Delivery = require("../models/Deliveries");
+const Earnings = require("../models/earnings");
+const Achievement = require("../models/achievements");
+const Appuser = require("../models/userAuth");
+const Order = require("../models/orders");
+const Conversation = require("../models/conversation");
+const Message = require("../models/message");
 
 const minioClient = new Minio.Client({
-  endPoint: "minio.grovyo.site",
+  endPoint: "minio.grovyo.xyz",
 
   useSSL: true,
   accessKey: "shreyansh379",
@@ -41,48 +48,61 @@ function generateRandomId() {
 exports.getdashboard = async (req, res) => {
   const { id } = req.params;
   try {
-    const user = await User.findById(id);
-    if (!user) {
-      res
-        .status(404)
-        .json({ message: "User not found!", success: true, userexists: false });
-    } else {
-      let dp = [];
-      for (let i = 0; i < user.photos?.length; i++) {
-        if (user?.photos[i].type === "dp") {
+    const user = await User.findById(id).populate({
+      path: "deliveries",
+      select:
+        "phonenumber pickupaddress droppingaddress amount orderId status title",
+      options: {
+        limit: 10,
+        sort: { createdAt: -1 },
+      },
+    });
+    const undels = await User.findById(id).populate({
+      path: "deliveries",
+      select: "status",
+    });
+
+    let undeliverd = 0;
+    if (undels && undels.deliveries && Array.isArray(undels.deliveries)) {
+      undels.deliveries.forEach((d) => {
+        if (d.status && d.status.toLowerCase() === "not started") {
+          undeliverd++;
         }
-        const d = await generatePresignedUrl(
-          "documents",
-          user.photos[i].content.toString(),
-          60 * 60
-        );
-        dp.push(d);
-      }
+      });
+    }
+
+    if (!user) {
+      res.status(404).json({ message: "User not found!", success: true });
+    } else {
       if (user?.accounttype === "affiliate") {
         res.status(200).json({
-          referalid: user.referalid,
           earnings: user.totalearnings,
           partner: user.deliverypartners.length,
           totalorder: user.deliverycount,
           achievements: user.achievements,
-          dp: dp[0],
           success: true,
+          orders: user.deliveries,
+          type: "affiliate",
+          pickup: user.pickup.length,
         });
       } else {
         res.status(200).json({
           earnings: user.totalearnings,
-          totalorder: user.deliverycount,
+          totalorder: user.deliverycount, //total delievers whether completed or not
           achievements: user.achievements,
-          dp: dp[0],
           success: true,
+          deliveries: user.deliveries, //latest 10 deliveries
+          cash: user.totalbalance,
+          undelivered: undeliverd, //yet to be delivered
+          type: "partner",
         });
       }
     }
   } catch (e) {
+    console.log(e);
     res.status(404).json({
       message: "Something went wrong...",
       success: false,
-      userexists: false,
     });
   }
 };
@@ -91,7 +111,14 @@ exports.getdashboard = async (req, res) => {
 exports.getallorders = async (req, res) => {
   const { id } = req.params;
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(id).populate({
+      path: "deliveries",
+      select:
+        "phonenumber pickupaddress droppingaddress amount title orderId status",
+      options: {
+        sort: { createdAt: -1 },
+      },
+    });
     if (user) {
       res.status(200).json({ deliveries: user?.deliveries, success: true });
     } else {
@@ -240,12 +267,13 @@ exports.updateprofile = async (req, res) => {
 exports.takebank = async (req, res) => {
   try {
     const { id } = req.params;
-    const { accno, ifsc } = req.body;
+    const { accno, ifsc, name } = req.body;
     const user = await User.findById(id);
     if (user) {
       let bank = {
         accno: accno,
         ifsccode: ifsc,
+        name,
       };
       await User.updateOne({ _id: user?._id }, { $set: { bank: bank } });
       res.status(200).json({ success: true });
@@ -342,20 +370,48 @@ exports.takefeedback = async (req, res) => {
   }
 };
 
-//get wallet
-exports.getwallet = async (req, res) => {
+//starting a delivery
+exports.startdelivery = async (req, res) => {
   try {
-    const { id } = req.params;
-    const user = await User.findById(id);
-    if (user) {
-      res.status(200).json({
-        totalearnings: user.totalearnings,
-        earnings: user.earnings,
-        currentbalance: user?.currentbalance,
-        success: true,
-      });
+    const { id, delid } = req.params;
+
+    const user = await User.findById(id).populate(
+      "currentdoing",
+      "title amount orderId status pickupaddress droppingaddress"
+    );
+    const delivery = await Delivery.findById(delid);
+
+    if (user && delivery) {
+      //if user is asking for current delivery details
+      if (user?.currentdoing?._id.toString() === delid) {
+        res.status(200).json({ success: true, data: user.currentdoing });
+      } else {
+        //starting a new delivery
+        if (
+          user.totalbalance < 3000 &&
+          user.activestatus === "online" &&
+          !user.currentdoing &&
+          (delivery.status !== "cancelled" ||
+            delivery?.status !== "Completed" ||
+            delivery?.status !== "In progress")
+        ) {
+          await Delivery.updateOne(
+            { _id: delivery._id },
+            { $set: { status: "In progress" } }
+          );
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { currentdoing: delivery._id } }
+          );
+          res.status(200).json({ success: true });
+        } else {
+          res
+            .status(203)
+            .json({ success: false, message: "Unable to start the delivery" });
+        }
+      }
     } else {
-      res.status(404).json({ message: "User not found", success: false });
+      res.status(404).json({ message: "Not Found", success: false });
     }
   } catch (e) {
     console.log(e);
@@ -365,11 +421,113 @@ exports.getwallet = async (req, res) => {
   }
 };
 
-//starting a delivery
-exports.startdelivery = async (req, res) => {};
+//end a delivery
+exports.enddelivery = async (req, res) => {
+  try {
+    const { id, delid } = req.params;
+    const { reason } = req.body;
+
+    const user = await User.findById(id).populate(
+      "currentdoing",
+      "title amount orerId status pickupaddress droppingaddress"
+    );
+    const delivery = await Delivery.findById(delid);
+
+    if (user && delivery) {
+      //if user is asking for current delivery details
+      if (user.currentdoing._id.toString() === delid) {
+        await Delivery.updateOne(
+          { _id: delivery._id },
+          { $set: { status: "cancelled", reason: reason } }
+        );
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { currentdoing: null } }
+        );
+        res.status(200).json({ success: true });
+      } else {
+        res.status(201).json({
+          success: false,
+          message: "Can't end delivery",
+        });
+      }
+    } else {
+      res.status(404).json({ message: "Not Found", success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+//get wallet
+exports.getwallet = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate(
+      "earnings.id",
+      "title mode amount status createdAt"
+    );
+    if (!user) {
+      res.status(404).json({ message: "User not found!", success: false });
+    } else {
+      res.status(200).json({
+        earnings: user.earnings,
+        totalearnings: user.totalearnings,
+        success: true,
+        earnings: user.earnings,
+        currentbalance: user?.totalbalance,
+        bank: user.bank,
+      });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
+  }
+};
 
 //get achievments
+exports.getachievements = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate(
+      "achievements",
+      "title amount start end image"
+    );
+    if (!user) {
+      res.status(404).json({ message: "User not found!", success: false });
+    } else {
+      res.status(200).json({
+        achievements: user.achievements,
+        completed: user.successedachievements,
+        success: true,
+      });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
+  }
+};
 
 //for admin - create achivements
+exports.createachiv = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data } = req.body;
+    const user = await User.findById(id);
+    if (user) {
+      const achiv = new Achievement(data);
+      await achiv.save();
+      res.status(200).json({ success: true });
+    } else {
+      res.status(404).json({ message: "User not found", success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ message: "Something went wrong", success: false });
+  }
+};
 
-//start delivery and checking if amount is gretar than 3000,delievring to the greatest ordercount store of that area, money divison during delivery per km btw driver and affiliate
+//start delivery - delievring to the greatest ordercount store of that area, money divison during delivery per km btw driver and affiliate
