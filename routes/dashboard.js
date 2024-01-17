@@ -19,6 +19,7 @@ const {
   createachiv,
   enddelivery,
   getwallet,
+  updatenotification,
 } = require("../controllers/dashboard");
 
 //dashboard
@@ -56,5 +57,8 @@ router.get("/getachievements/:id", getachievements);
 
 //create achievements
 router.get("/createachiv", createachiv);
+
+//create achievements
+router.get("/updatenotification/:id", updatenotification);
 
 module.exports = router;

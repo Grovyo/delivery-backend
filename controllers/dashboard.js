@@ -530,4 +530,26 @@ exports.createachiv = async (req, res) => {
   }
 };
 
+//updating notification token of user
+exports.updatenotification = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { token } = req.body;
+    const user = await User.findById(userId);
+    if (user) {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: { notificationtoken: token },
+        }
+      );
+      res.status(200).json({ success: true });
+    } else {
+      res.status(404).json({ message: "User not found", success: false });
+    }
+  } catch (e) {
+    res.status(400).json({ message: e.message, success: false });
+  }
+};
+
 //start delivery - delievring to the greatest ordercount store of that area, money divison during delivery per km btw driver and affiliate
