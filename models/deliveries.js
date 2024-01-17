@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
-const Deliveries = new mongoose.Schema({
+const deliveries = new mongoose.Schema({
   title: { type: String },
   amount: { type: Number },
   orderId: { type: Number },
@@ -50,6 +50,6 @@ const Deliveries = new mongoose.Schema({
   timing: { type: String },
 });
 
-Deliveries.index({ title: "text" });
+deliveries.index({ title: "text" });
 
-module.exports = mongoose.model("DeliveriesSchema", Deliveries);
+module.exports = mongoose.model("DeliveriesSchema", deliveries);
