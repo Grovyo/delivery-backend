@@ -48,6 +48,16 @@ const deliveries = new mongoose.Schema({
   phonenumber: { type: Number },
   remarks: { type: String },
   timing: { type: String },
+  current: { type: Number, default: 0 },
+  data: [
+    {
+      product: { type: ObjectId, ref: "Product" },
+      qty: { type: Number },
+      seller: { type: ObjectId, ref: "User" },
+      price: { type: Number, default: 0 },
+    },
+  ],
+  verifypic: [{ type: String }],
 });
 
 deliveries.index({ title: "text" });

@@ -3,6 +3,9 @@ const Minio = require("minio");
 const uuid = require("uuid").v4;
 const sharp = require("sharp");
 const Locations = require("../models/locations");
+const Delivery = require("../models/deliveries");
+const Earn = require("../models/earnings");
+const Order = require("../models/orders");
 const natural = require("natural");
 const serviceKey = require("../grovyo-e3603-firebase-adminsdk-3jqvt-b10eb47254.json");
 const admin = require("firebase-admin");
@@ -182,7 +185,7 @@ exports.usersignup = async (req, res) => {
           bearing: bearing ? bearing : 0,
         },
       };
-
+      console.log(culoc);
       //activity
       const activity = {
         time: time,
@@ -227,66 +230,67 @@ exports.usersignup = async (req, res) => {
         };
         res.status(200).json({ data, success: true, userexists: true });
       } else {
-        if (referalid) {
-          const checkuser = await User.findOne({ referalid: referalid });
-          if (checkuser && checkuser.accstatus !== "blocked") {
-            const user = new User({
-              fullname: fullname,
-              adharnumber: adharnumber,
-              phone: phone,
-              accstatus: "review",
-              email: email,
-              accounttype: accounttype,
-              vehicletype: vehicletype,
-              liscenenumber: liscenenumber,
-              notificationtoken: notificationtoken,
-              address: address,
-              referalid: refid,
-              activity: activity,
-              photos: photos,
-              currentlocation: culoc,
-              attachedid: referalid,
-            });
+        // if (referalid) {
+        const checkuser = await User.findOne({ referalid: referalid });
+        // if (checkuser && checkuser.accstatus !== "blocked") {
+        const user = new User({
+          fullname: fullname,
+          adharnumber: adharnumber,
+          phone: phone,
+          accstatus: "review",
+          email: email,
+          accounttype: accounttype,
+          vehicletype: vehicletype,
+          liscenenumber: liscenenumber,
+          notificationtoken: notificationtoken,
+          address: address,
+          referalid: refid,
+          activity: activity,
+          photos: photos,
+          currentlocation: culoc,
+          // attachedid: referalid,
+        });
 
-            await user.save();
-            const partnerid = {
-              id: user?._id,
-            };
-            await User.updateOne(
-              { _id: checkuser?._id },
-              {
-                $push: {
-                  deliverypartners: partnerid,
-                },
-              }
-            );
-            let data = {
-              fullname,
-              email,
-              address,
-              referalid: user.referalid,
-              id: user._id,
-              accounttype,
-              isverified: user.isverified,
-              state,
-              city,
-              pin: pincode,
-            };
-            res.status(200).json({ data, success: true, userexists: true });
-          } else {
-            res.status(404).json({
-              message: "Invalid referal id",
-              success: false,
-              userexists: false,
-            });
+        await user.save();
+        const partnerid = {
+          id: user?._id,
+        };
+        await User.updateOne(
+          { _id: checkuser?._id },
+          {
+            $push: {
+              deliverypartners: partnerid,
+            },
           }
-        } else {
-          res.status(403).json({
-            message: "Must use referal id",
-            success: false,
-            userexists: false,
-          });
-        }
+        );
+        let data = {
+          fullname,
+          email,
+          address,
+          referalid: user.referalid,
+          id: user._id,
+          accounttype,
+          isverified: user.isverified,
+          state,
+          city,
+          pin: pincode,
+        };
+        res.status(200).json({ data, success: true, userexists: true });
+        // } else {
+        //   console.log("invalid refid");
+        //   res.status(404).json({
+        //     message: "Invalid referal id",
+        //     success: false,
+        //     userexists: false,
+        //   });
+        // }
+        // } else {
+        //   res.status(403).json({
+        //     message: "Must use referal id",
+        //     success: false,
+        //     userexists: false,
+        //   });
+        // }
       }
     } else {
       res.status(403).json({
@@ -667,6 +671,145 @@ exports.changeactive = async (req, res) => {
         }
       );
       res.status(200).json({ success: true });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+//current delivery status
+exports.deliverystatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const del = await Delivery.findById(id);
+    if (del) {
+      res
+        .status(200)
+        .json({ success: true, data: del?.data, current: del?.current });
+    } else {
+      res.status(404).json({ message: "Delivery not found", success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+//getting verification pic
+exports.verifypic = async (req, res) => {
+  try {
+    const { id, dev } = req.params;
+    const user = await User.findById(id);
+    const delivery = await Delivery.findById(dev);
+    const order = await Order.findOne({ orderId: delivery?.orderId });
+
+    if (user) {
+      const uuidString = uuid();
+      const bucketName = "documents";
+      const objectName = `${Date.now()}_${uuidString}_${req.file.originalname}`;
+
+      await sharp(req.file.buffer)
+        .jpeg({ quality: 50 })
+        .toBuffer()
+        .then(async (data) => {
+          await minioClient.putObject(bucketName, objectName, data);
+        })
+        .catch((err) => {
+          console.log(err.message, "-error");
+        });
+
+      const type = req.file.fieldname.toLowerCase();
+      let fall = null;
+      if (delivery.current === 0) {
+        await Delivery.updateOne(
+          { _id: dev },
+          { $push: { verifypic: objectName }, $inc: { current: 1 } }
+        );
+        fall = false;
+      } else {
+        await Delivery.updateOne(
+          { _id: dev },
+          { $push: { verifypic: objectName }, $inc: { current: 1 } }
+        );
+        fall = true;
+        await Delivery.updateOne(
+          { _id: delivery?._id },
+          { $set: { status: "Completed" } }
+        );
+
+        const earn = new Earn({
+          title: user.fullname,
+          id: user._id,
+          amount: order.total,
+        });
+        await earn.save();
+        let earning = {
+          timing: Date.now(),
+          amount: order.total,
+          id: earn._id,
+          mode: "Delivery",
+        };
+        //if order was supposed to be paid in cash mode
+
+        let balance = {
+          amount: order.total,
+          time: Date.now(),
+          delid: user._id,
+          mode: "Delivery",
+        };
+
+        await User.updateOne(
+          { _id: user._id },
+          {
+            $set: { currentdoing: null },
+            $inc: {
+              totalearnings: earnedmoney,
+              totalbalance: order.total,
+              deliverycount: 1,
+            },
+            $push: {
+              balance: balance,
+              earnings: earning,
+              finisheddeliveries: delivery._id,
+            },
+          }
+        );
+
+        const date = new Date(Date.now());
+
+        const formattedDate =
+          date.toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          }) +
+          " at " +
+          date.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "numeric",
+            hour12: true,
+          });
+
+        await Order.updateOne(
+          { orderId: delivery?.orderId },
+          {
+            $set: {
+              currentStatus: "completed",
+              timing: formattedDate,
+            },
+          }
+        );
+      }
+
+      res.status(200).json({ success: true, fall: fall });
+    } else {
+      res.status(404).json({ message: "User not found", success: false });
     }
   } catch (e) {
     console.log(e);

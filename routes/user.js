@@ -13,6 +13,8 @@ const {
   approveid,
   changeactive,
   updateuser,
+  deliverystatus,
+  verifypic,
 } = require("../controllers/user");
 
 //signup or login user check
@@ -38,5 +40,11 @@ router.post("/userlogout/:id", userlogout);
 
 //updateuser profile
 router.post("/updateuser/:id", upload.any(), updateuser);
+
+//delivery status
+router.get("/deliverystatus/:id", deliverystatus);
+
+//delivery status
+router.post("/verifypic/:id/:dev", upload.single("image"), verifypic);
 
 module.exports = router;
