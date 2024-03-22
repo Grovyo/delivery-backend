@@ -768,7 +768,7 @@ exports.verifypic = async (req, res) => {
           {
             $set: { currentdoing: null },
             $inc: {
-              totalearnings: earnedmoney,
+              totalearnings: 20,
               totalbalance: order.total,
               deliverycount: 1,
             },
