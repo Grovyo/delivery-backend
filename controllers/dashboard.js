@@ -138,6 +138,7 @@ exports.changestatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const user = await User.findById(id);
+
     if (user) {
       if (status === "online") {
         await User.updateOne(
@@ -387,6 +388,14 @@ exports.startdelivery = async (req, res) => {
         res.status(200).json({ success: true, data: user.currentdoing });
       } else {
         //starting a new delivery
+        console.log(
+          user.totalbalance < 3000,
+          user.activestatus === "online",
+          !user.currentdoing,
+          delivery.status !== "cancelled" ||
+            delivery?.status !== "Completed" ||
+            delivery?.status !== "In progress"
+        );
         if (
           user.totalbalance < 3000 &&
           user.activestatus === "online" &&
