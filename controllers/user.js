@@ -17,10 +17,12 @@ const {
 } = require("@aws-sdk/client-s3");
 const Stock = require("../models/stock");
 const geolib = require("geolib");
+const { default: axios } = require("axios");
 
 require("dotenv").config();
 
 const BUCKET_NAME = process.env.BUCKET_NAME;
+const apiKey = process.env.GEOCODE;
 
 const s3 = new S3Client({
   region: process.env.BUCKET_REGION,
@@ -201,6 +203,26 @@ exports.usersignup = async (req, res) => {
         });
       }
 
+      let latitude;
+      let longitude;
+
+      let add = streetaddress + city + pincode + state;
+
+      const endpoint = "https://maps.googleapis.com/maps/api/geocode/json";
+      const params = {
+        address: add,
+        key: apiKey,
+      };
+
+      const response = await axios.get(endpoint, { params });
+      const data = response.data;
+      if (data.status === "OK") {
+        const location = data.results[0].geometry.location;
+        latitude = location.lat;
+        longitude = location.lng;
+      }
+
+      console.log("lat", latitude, longitude);
       //current location
       const culoc = {
         latitude: latitude ? latitude : 0,
@@ -218,10 +240,10 @@ exports.usersignup = async (req, res) => {
         coordinates: {
           latitude: latitude ? latitude : 0,
           longitude: longitude ? longitude : 0,
-          altitude: altitude ? altitude : 0,
-          provider: provider ? provider : 0,
-          accuracy: accuracy ? accuracy : 0,
-          bearing: bearing ? bearing : 0,
+          // altitude: altitude ? altitude : 0,
+          // provider: provider ? provider : 0,
+          // accuracy: accuracy ? accuracy : 0,
+          // bearing: bearing ? bearing : 0,
         },
       };
 
@@ -881,7 +903,6 @@ exports.verifypic = async (req, res) => {
       if (delivery.from === "affiliate") {
         const stock = await Stock.findOne({ orderid: order.orderId });
 
-        console.log(a, delivery.affid);
         //update store
         await User.updateOne(
           { _id: delivery.affid },
