@@ -10,6 +10,24 @@ const Appuser = require("../models/userAuth");
 const Order = require("../models/orders");
 const Conversation = require("../models/conversation");
 const Message = require("../models/message");
+const {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} = require("@aws-sdk/client-s3");
+const Stock = require("../models/stock");
+
+require("dotenv").config();
+
+const BUCKET_NAME = process.env.BUCKET_NAME;
+
+const s3 = new S3Client({
+  region: process.env.BUCKET_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY,
+    secretAccessKey: process.env.AWS_SECRET_KEY,
+  },
+});
 
 const minioClient = new Minio.Client({
   endPoint: "minio.grovyo.xyz",
@@ -78,7 +96,7 @@ exports.getdashboard = async (req, res) => {
         res.status(200).json({
           earnings: user.totalearnings,
           partner: user.deliverypartners.length,
-          totalorder: user.deliverycount,
+          totalorder: user.stock.length,
           achievements: user.achievements,
           success: true,
           orders: user.deliveries,
@@ -114,13 +132,63 @@ exports.getallorders = async (req, res) => {
     const user = await User.findById(id).populate({
       path: "deliveries",
       select:
-        "phonenumber pickupaddress droppingaddress amount title orderId status",
+        "phonenumber pickupaddress droppingaddress amount title orderId status marks data",
       options: {
         sort: { createdAt: -1 },
       },
     });
+
     if (user) {
       res.status(200).json({ deliveries: user?.deliveries, success: true });
+    } else {
+      res.status(404).json({ message: "User not found", success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+//list of orders
+exports.getallorders = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await User.findById(id).populate({
+      path: "deliveries",
+      select:
+        "phonenumber pickupaddress droppingaddress amount title orderId status marks data",
+      options: {
+        sort: { createdAt: -1 },
+      },
+    });
+
+    if (user) {
+      res.status(200).json({ deliveries: user?.deliveries, success: true });
+    } else {
+      res.status(404).json({ message: "User not found", success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res
+      .status(400)
+      .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+//list of stock
+exports.getstock = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await User.findById(id);
+
+    if (user) {
+      const stock = await Stock.find({ currentholder: user._id, active: true })
+        .populate("prevdriverid", "fullname")
+        .populate("nextby", "fullname");
+
+      res.status(200).json({ stock, success: true });
     } else {
       res.status(404).json({ message: "User not found", success: false });
     }
@@ -558,6 +626,46 @@ exports.updatenotification = async (req, res) => {
     }
   } catch (e) {
     res.status(400).json({ message: e.message, success: false });
+  }
+};
+
+//mark as done
+exports.markdone = async (req, res) => {
+  try {
+    const { id, mark, delid } = req.body;
+    const user = await User.findById(id);
+    const del = await Delivery.findById(delid);
+    if (user && del) {
+      const uuidString = uuid();
+      const objectName = `${Date.now()}_${uuidString}_${req.file.originalname}`;
+
+      const result = await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: objectName,
+          Body: req.file.buffer,
+          ContentType: req.file.mimetype,
+        })
+      );
+
+      let index = del.marks.findIndex((item) => item._id.toString() === mark);
+
+      if (index !== -1) {
+        del.marks[index].done = true;
+        del.marks[index].pic = objectName;
+
+        await del.save();
+
+        res.status(200).json({ success: true });
+      } else {
+        res.status(203).json({ success: false });
+      }
+    } else {
+      res.status(404).json({ success: false });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ success: false, message: "Something went wrong!" });
   }
 };
 

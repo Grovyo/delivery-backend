@@ -166,6 +166,10 @@ const deluser = new mongoose.Schema({
     },
   ],
   currentdoing: { type: ObjectId, ref: "DeliveriesSchema" }, //is user currently doing any delivery
+  primaryloc: {
+    type: String,
+  }, // for city
+  stock: [{ type: ObjectId, ref: "Stock" }],
 });
 
 deluser.index({ phone: "Number" });

@@ -10,6 +10,7 @@ const OrderSchema = new mongoose.Schema(
     quantity: { type: Number, min: 1 },
     total: { type: Number, min: 0 },
     customername: { type: String },
+    mode: String,
     currentStatus: {
       type: String,
       enum: [
@@ -35,11 +36,13 @@ const OrderSchema = new mongoose.Schema(
       enum: ["Cash", "UPI", "Card"],
       default: "Cash",
     },
-    stats: [{
-      X: [{ type: Number }], //days(x-axis)
-      Y1: [{ type: Number }],
-      Y2: [{ type: Number }],
-    }],
+    stats: [
+      {
+        X: [{ type: Number }], //days(x-axis)
+        Y1: [{ type: Number }],
+        Y2: [{ type: Number }],
+      },
+    ],
     routes: {
       A: { type: String },
       B: { type: String },

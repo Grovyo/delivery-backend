@@ -20,6 +20,8 @@ const {
   enddelivery,
   getwallet,
   updatenotification,
+  markdone,
+  getstock,
 } = require("../controllers/dashboard");
 
 //dashboard
@@ -60,5 +62,11 @@ router.get("/createachiv", createachiv);
 
 //create achievements
 router.get("/updatenotification/:id", updatenotification);
+
+//marking delivery as done
+router.post("/markdone", upload.single("image"), markdone);
+
+//get stock
+router.get("/getstock/:id", getstock);
 
 module.exports = router;

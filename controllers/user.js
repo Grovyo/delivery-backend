@@ -1,4 +1,5 @@
 const User = require("../models/deluser");
+const MainUser = require("../models/userAuth");
 const Minio = require("minio");
 const uuid = require("uuid").v4;
 const sharp = require("sharp");
@@ -9,6 +10,45 @@ const Order = require("../models/orders");
 const natural = require("natural");
 const serviceKey = require("../grovyo-e3603-firebase-adminsdk-3jqvt-b10eb47254.json");
 const admin = require("firebase-admin");
+const {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} = require("@aws-sdk/client-s3");
+const Stock = require("../models/stock");
+const geolib = require("geolib");
+
+require("dotenv").config();
+
+const BUCKET_NAME = process.env.BUCKET_NAME;
+
+const s3 = new S3Client({
+  region: process.env.BUCKET_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY,
+    secretAccessKey: process.env.AWS_SECRET_KEY,
+  },
+});
+
+function sumArray(arr) {
+  let total = 0;
+  for (let i = 0; i < arr.length; i++) {
+    total += arr[i];
+  }
+  return total;
+}
+
+function calculateTotalDistance(coordinates) {
+  let totalDistance = 0;
+
+  for (let i = 1; i < coordinates.length; i++) {
+    const coord1 = coordinates[i - 1];
+    const coord2 = coordinates[i];
+    totalDistance += geolib.getDistance(coord1, coord2);
+  }
+
+  return totalDistance / 1000;
+}
 
 //minio client configuration
 const minioClient = new Minio.Client({
@@ -139,20 +179,19 @@ exports.usersignup = async (req, res) => {
       //saving photo
       for (let i = 0; i < req?.files?.length; i++) {
         const uuidString = uuid();
-        const bucketName = "documents";
+
         const objectName = `${Date.now()}_${uuidString}_${
           req.files[i].originalname
         }`;
 
-        await sharp(req.files[i].buffer)
-          .jpeg({ quality: 50 })
-          .toBuffer()
-          .then(async (data) => {
-            await minioClient.putObject(bucketName, objectName, data);
+        const result = await s3.send(
+          new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: objectName,
+            Body: req.files[i].buffer,
+            ContentType: req.files[i].mimetype,
           })
-          .catch((err) => {
-            console.log(err.message, "-error");
-          });
+        );
 
         const type = req.files[i].fieldname.toLowerCase();
 
@@ -185,7 +224,7 @@ exports.usersignup = async (req, res) => {
           bearing: bearing ? bearing : 0,
         },
       };
-      console.log(culoc);
+
       //activity
       const activity = {
         time: time,
@@ -211,11 +250,11 @@ exports.usersignup = async (req, res) => {
           activity: activity,
           photos: photos,
           currentlocation: culoc,
+          primaryloc: city,
         });
 
         await user.save();
 
-        await Locations.updateOne;
         let data = {
           fullname,
           email,
@@ -248,6 +287,7 @@ exports.usersignup = async (req, res) => {
           activity: activity,
           photos: photos,
           currentlocation: culoc,
+          primaryloc: city,
           // attachedid: referalid,
         });
 
@@ -317,15 +357,11 @@ exports.getinitaldata = async (req, res) => {
     if (!user) {
       res.status(404).json({ message: "User not found", success: false });
     } else {
-      let dp = [];
+      let dp;
       for (let i = 0; i < user.photos?.length; i++) {
         if (user?.photos[i].type === "dp") {
-          const d = await generatePresignedUrl(
-            "documents",
-            user.photos[i].content.toString(),
-            60 * 60
-          );
-          dp.push(d);
+          const d = process.env.URL + user.photos[i].content.toString();
+          dp = d;
         }
       }
 
@@ -339,7 +375,7 @@ exports.getinitaldata = async (req, res) => {
           email: user.email,
           id: user._id,
           refid: user.referalid,
-          dp: dp[0],
+          dp: dp,
           activestatus: user.activestatus,
         },
       });
@@ -686,9 +722,12 @@ exports.deliverystatus = async (req, res) => {
     const { id } = req.params;
     const del = await Delivery.findById(id);
     if (del) {
-      res
-        .status(200)
-        .json({ success: true, data: del?.data, current: del?.current });
+      res.status(200).json({
+        success: true,
+        data: del?.data,
+        current: del?.current,
+        mode: del.mode,
+      });
     } else {
       res.status(404).json({ message: "Delivery not found", success: false });
     }
@@ -703,110 +742,159 @@ exports.deliverystatus = async (req, res) => {
 //getting verification pic
 exports.verifypic = async (req, res) => {
   try {
-    const { id, dev } = req.params;
+    const { id, dev, mark } = req.params;
     const user = await User.findById(id);
     const delivery = await Delivery.findById(dev);
     const order = await Order.findOne({ orderId: delivery?.orderId });
 
     if (user) {
       const uuidString = uuid();
-      const bucketName = "documents";
       const objectName = `${Date.now()}_${uuidString}_${req.file.originalname}`;
 
-      await sharp(req.file.buffer)
-        .jpeg({ quality: 50 })
-        .toBuffer()
-        .then(async (data) => {
-          await minioClient.putObject(bucketName, objectName, data);
+      const result = await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: objectName,
+          Body: req.file.buffer,
+          ContentType: req.file.mimetype,
         })
-        .catch((err) => {
-          console.log(err.message, "-error");
+      );
+
+      await Delivery.updateOne(
+        { _id: dev },
+        { $push: { verifypic: objectName }, $inc: { current: 1 } }
+      );
+      fall = true;
+      await Delivery.updateOne(
+        { _id: delivery?._id },
+        { $set: { status: "Completed" } }
+      );
+
+      const earn = new Earn({
+        title: user.fullname,
+        id: user._id,
+        amount: delivery.earning,
+      });
+      await earn.save();
+      let earning = {
+        timing: Date.now(),
+        amount: delivery.earning,
+        id: earn._id,
+        mode: "Delivery",
+      };
+      //if order was supposed to be paid in cash mode
+
+      let balance = {
+        amount: order.total,
+        time: Date.now(),
+        delid: user._id,
+        mode: "Delivery",
+      };
+
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: { currentdoing: null },
+          $inc: {
+            totalearnings: delivery.earning,
+            totalbalance: order.total,
+            deliverycount: 1,
+          },
+          $push: {
+            balance: balance,
+            earnings: earning,
+            finisheddeliveries: delivery._id,
+          },
+        }
+      );
+
+      const date = new Date(Date.now());
+
+      const formattedDate =
+        date.toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }) +
+        " at " +
+        date.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "numeric",
+          hour12: true,
         });
 
-      const type = req.file.fieldname.toLowerCase();
-      let fall = null;
-      if (delivery.current === 0) {
-        await Delivery.updateOne(
-          { _id: dev },
-          { $push: { verifypic: objectName }, $inc: { current: 1 } }
-        );
-        fall = false;
-      } else {
-        await Delivery.updateOne(
-          { _id: dev },
-          { $push: { verifypic: objectName }, $inc: { current: 1 } }
-        );
-        fall = true;
-        await Delivery.updateOne(
-          { _id: delivery?._id },
-          { $set: { status: "Completed" } }
-        );
+      await Order.updateOne(
+        { orderId: delivery?.orderId },
+        {
+          $set: {
+            currentStatus: "completed",
+            timing: formattedDate,
+          },
+        }
+      );
 
-        const earn = new Earn({
-          title: user.fullname,
-          id: user._id,
-          amount: order.total,
+      //marking as done and storing the pick
+      let index = delivery.marks.findIndex(
+        (item) => item._id.toString() === mark
+      );
+
+      if (index !== -1) {
+        delivery.marks[index].done = true;
+        delivery.marks[index].pic = objectName;
+
+        await delivery.save();
+      }
+
+      //create a stock
+      if (delivery.where === "affiliate") {
+        const stock = new Stock({
+          prevdriverid: user._id,
+          data: delivery.data,
+          when: Date.now(),
+          currentholder: delivery.affid,
+          price: order.total,
+          qty: order.quantity,
+          orderid: order.orderId,
+          active: true,
         });
-        await earn.save();
-        let earning = {
-          timing: Date.now(),
-          amount: order.total,
-          id: earn._id,
-          mode: "Delivery",
-        };
-        //if order was supposed to be paid in cash mode
 
-        let balance = {
-          amount: order.total,
-          time: Date.now(),
-          delid: user._id,
-          mode: "Delivery",
-        };
+        await stock.save();
+
+        //update store
 
         await User.updateOne(
-          { _id: user._id },
+          { _id: delivery.affid },
           {
-            $set: { currentdoing: null },
-            $inc: {
-              totalearnings: 20,
-              totalbalance: order.total,
-              deliverycount: 1,
-            },
-            $push: {
-              balance: balance,
-              earnings: earning,
-              finisheddeliveries: delivery._id,
-            },
+            $push: { stock: stock._id },
+            $pull: { pickup: delivery._id, deliveries: delivery._id },
           }
         );
 
-        const date = new Date(Date.now());
+        credeli({
+          storeid: delivery.affid,
+          total: order.total,
+          stockid: stock._id,
+          oid: order._id,
+        });
+      }
+      if (delivery.from === "affiliate") {
+        const stock = await Stock.findOne({ orderid: order.orderId });
 
-        const formattedDate =
-          date.toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          }) +
-          " at " +
-          date.toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "numeric",
-            hour12: true,
-          });
-
-        await Order.updateOne(
-          { orderId: delivery?.orderId },
+        console.log(a, delivery.affid);
+        //update store
+        await User.updateOne(
+          { _id: delivery.affid },
           {
-            $set: {
-              currentStatus: "completed",
-              timing: formattedDate,
+            $pull: {
+              stock: stock._id,
+              pickup: delivery._id,
+              deliveries: delivery._id,
             },
+            $set: { active: false },
           }
         );
       }
-
       res.status(200).json({ success: true, fall: fall });
     } else {
       res.status(404).json({ message: "User not found", success: false });
@@ -816,5 +904,155 @@ exports.verifypic = async (req, res) => {
     res
       .status(400)
       .json({ message: "Something went wrong...", success: false });
+  }
+};
+
+const credeli = async ({ storeid, stockid, oid, total }) => {
+  try {
+    const order = await Order.findById(oid);
+
+    const store = await User.findById(storeid);
+    const user = await MainUser.findById(order.buyerId);
+    const stock = await Stock.findById(stockid);
+
+    let usualamount = 5;
+
+    //finding the nearest delivery partner to the store
+    let partners = [];
+
+    const deliverypartners = await User.find({
+      accounttype: "partner",
+      primaryloc: store.primaryloc,
+    });
+    for (let deliverypartner of deliverypartners) {
+      if (
+        deliverypartner &&
+        deliverypartner.accstatus !== "banned" &&
+        deliverypartner.accstatus !== "review" &&
+        deliverypartner.deliveries?.length < 21 &&
+        deliverypartner.totalbalance < 3000
+      ) {
+        let driverloc = {
+          latitude: deliverypartner.currentlocation?.latitude,
+          longitude: deliverypartner.currentlocation?.longitude,
+          id: deliverypartner?._id,
+        };
+        partners.push(driverloc);
+      }
+    }
+
+    let storeaddress = {
+      latitude: store.address.coordinates.longitude,
+      longitude: store.address.coordinates.longitude,
+    };
+    let eligiblepartner = geolib.findNearest(storeaddress, partners);
+
+    //assiging the delivery to partner
+
+    if (eligiblepartner) {
+      const driver = await User?.findById(eligiblepartner?.id);
+
+      const finalcoordinates = [
+        {
+          latitude: eligiblepartner.latitude,
+          longitude: eligiblepartner.longitude,
+        },
+        {
+          latitude: user.address.coordinates.latitude,
+          longitude: user.address.coordinates.longitude,
+        },
+        {
+          latitude: store.address.coordinates.latitude,
+          longitude: store.address.coordinates.longitude,
+        },
+      ];
+      //total distance travelled
+      const totalDistance = calculateTotalDistance(finalcoordinates);
+      //earning of driver
+      const earning = totalDistance * usualamount;
+
+      //markings
+      let marks = [
+        {
+          latitude: eligiblepartner.latitude,
+          longitude: eligiblepartner.longitude,
+          done: true,
+        },
+        {
+          latitude: store.address.coordinates.latitude,
+          longitude: store.address.coordinates.longitude,
+          done: false,
+          address: store?.address,
+        },
+        {
+          latitude: user.address.coordinates.latitude,
+          longitude: user.address.coordinates.longitude,
+          done: false,
+          address: user?.address,
+        },
+      ];
+
+      const newDeliveries = new Delivery({
+        title: user?.fullname,
+        amount: total,
+        orderId: order.orderId,
+        pickupaddress: store.address,
+        partner: driver?._id,
+        droppingaddress: user?.address,
+        phonenumber: user.phone,
+        mode: order.paymentMode ? order?.paymentMode : "Cash",
+        marks: marks,
+        earning: earning > 150 ? 150 : earning,
+        where: "customer",
+        data: order.data,
+        from: "affiliate",
+      });
+      await newDeliveries.save();
+
+      //pushing delivery for driver
+      await User.updateOne(
+        { _id: driver._id },
+        { $push: { deliveries: newDeliveries?._id } }
+      );
+      //store
+      await User.updateOne(
+        { _id: store._id },
+        { $push: { deliveries: newDeliveries?._id, pickup: newDeliveries._id } }
+      );
+
+      //stock update
+      await Stock.updateOne(
+        { _id: stockid },
+        { $set: { nextby: driver?._id } }
+      );
+
+      const msg = {
+        notification: {
+          title: "A new delivery has arrived.",
+          body: `From ${user?.fullname} OrderId #${oid}`,
+        },
+        data: {},
+        tokens: [
+          driver?.notificationtoken,
+          // user?.notificationtoken,
+          // store?.notificationtoken, //person who selles this item
+        ],
+      };
+
+      await admin
+        .messaging()
+        .sendEachForMulticast(msg)
+        .then((response) => {
+          console.log("Successfully sent message");
+        })
+        .catch((error) => {
+          console.log("Error sending message:", error);
+        });
+      console.log("Booked Instant");
+    } else {
+      console.log("No drivers available at the moment!");
+    }
+  } catch (e) {
+    console.log(e, "Cannot assign delivery");
   }
 };

@@ -45,6 +45,6 @@ router.post("/updateuser/:id", upload.any(), updateuser);
 router.get("/deliverystatus/:id", deliverystatus);
 
 //delivery status
-router.post("/verifypic/:id/:dev", upload.single("image"), verifypic);
+router.post("/verifypic/:id/:dev/:mark", upload.single("image"), verifypic);
 
 module.exports = router;

@@ -7,6 +7,7 @@ const deliveries = new mongoose.Schema({
   orderId: { type: Number },
   time: { type: Number },
   type: { type: String },
+  data: Array,
   partner: { type: ObjectId, ref: "DelUser" },
   mode: { type: String },
   status: { type: String, default: "Not started" },
@@ -49,15 +50,29 @@ const deliveries = new mongoose.Schema({
   remarks: { type: String },
   timing: { type: String },
   current: { type: Number, default: 0 },
-  data: [
+  // data: [
+  //   {
+  //     product: { type: ObjectId, ref: "Product" },
+  //     qty: { type: Number },
+  //     seller: { type: ObjectId, ref: "User" },
+  //     price: { type: Number, default: 0 },
+  //   },
+  // ],
+  verifypic: [{ type: String }],
+  marks: [
     {
-      product: { type: ObjectId, ref: "Product" },
-      qty: { type: Number },
-      seller: { type: ObjectId, ref: "User" },
-      price: { type: Number, default: 0 },
+      latitude: String,
+      longitude: String,
+      address: Object,
+      done: Boolean,
+      pic: String,
     },
   ],
-  verifypic: [{ type: String }],
+  where: { type: String, enum: ["affiliate", "customer"] },
+  earning: { type: Number },
+  affid: { type: ObjectId, ref: "DelUser" },
+  buyer: { type: ObjectId, ref: "User" },
+  from: String,
 });
 
 deliveries.index({ title: "text" });
