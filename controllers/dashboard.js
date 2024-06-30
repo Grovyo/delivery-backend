@@ -456,14 +456,7 @@ exports.startdelivery = async (req, res) => {
         res.status(200).json({ success: true, data: user.currentdoing });
       } else {
         //starting a new delivery
-        console.log(
-          user.totalbalance < 3000,
-          user.activestatus === "online",
-          !user.currentdoing,
-          delivery.status !== "cancelled" ||
-            delivery?.status !== "Completed" ||
-            delivery?.status !== "In progress"
-        );
+
         if (
           user.totalbalance < 3000 &&
           user.activestatus === "online" &&
@@ -480,6 +473,27 @@ exports.startdelivery = async (req, res) => {
             { _id: user._id },
             { $set: { currentdoing: delivery._id } }
           );
+
+          //taking stock out
+          if (delivery.from === "affiliate") {
+            const stock = await Stock.findOne({ orderid: delivery.orderId });
+            stock.active = false;
+            await stock.save();
+            console.log(stock._id);
+            //update store
+            await User.updateOne(
+              { _id: stock.currentholder },
+              {
+                $pull: {
+                  stock: stock._id,
+                  pickup: delivery._id,
+                  deliveries: delivery._id,
+                },
+                $set: { active: false },
+              }
+            );
+          }
+
           res.status(200).json({ success: true });
         } else {
           res

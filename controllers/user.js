@@ -900,22 +900,7 @@ exports.verifypic = async (req, res) => {
           oid: order._id,
         });
       }
-      if (delivery.from === "affiliate") {
-        const stock = await Stock.findOne({ orderid: order.orderId });
 
-        //update store
-        await User.updateOne(
-          { _id: delivery.affid },
-          {
-            $pull: {
-              stock: stock._id,
-              pickup: delivery._id,
-              deliveries: delivery._id,
-            },
-            $set: { active: false },
-          }
-        );
-      }
       res.status(200).json({ success: true, fall: fall });
     } else {
       res.status(404).json({ message: "User not found", success: false });
