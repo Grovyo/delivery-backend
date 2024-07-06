@@ -202,6 +202,7 @@ const userSchema = new mongoose.Schema(
     },
     storeAddress: [
       {
+        streetaddress: { type: String },
         buildingno: { type: String },
         city: { type: String },
         state: { type: String },
