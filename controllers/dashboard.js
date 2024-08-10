@@ -29,29 +29,6 @@ const s3 = new S3Client({
   },
 });
 
-const minioClient = new Minio.Client({
-  endPoint: "minio.grovyo.xyz",
-
-  useSSL: true,
-  accessKey: "shreyansh379",
-  secretKey: "shreyansh379",
-});
-
-//function to generate a presignedurl of minio
-async function generatePresignedUrl(bucketName, objectName, expiry = 604800) {
-  try {
-    const presignedUrl = await minioClient.presignedGetObject(
-      bucketName,
-      objectName,
-      expiry
-    );
-    return presignedUrl;
-  } catch (err) {
-    console.error(err);
-    throw new Error("Failed to generate presigned URL");
-  }
-}
-
 //function to generate random id
 function generateRandomId() {
   const min = 100000000;
@@ -102,17 +79,29 @@ exports.getdashboard = async (req, res) => {
           orders: user.deliveries,
           type: "affiliate",
           pickup: user.pickup.length,
+          businessreg: 0,
+          totalpartners: 0,
+          onlinepartners: 0,
         });
       } else {
         res.status(200).json({
-          earnings: user.totalearnings,
           totalorder: user.deliverycount, //total delievers whether completed or not
-          achievements: user.achievements,
           success: true,
-          deliveries: user.deliveries, //latest 10 deliveries
+          earnings: user.totalearnings,
+          todayearnings: 0,
+          type: user.accounttype,
+          id: user.refid,
+          rating: user.rating,
+          status: user.activity,
+          totaldeliveries: user.deliveries.length,
+          deliveries: user.deliveries.length, //latest 10 deliveries
+          pending: user.deliveries.length,
+          failed: user.deliveries.length,
           cash: user.totalbalance,
-          undelivered: undeliverd, //yet to be delivered
-          type: "partner",
+          todayearnings: user.earnings,
+          walletbalance: user.totalbalance,
+          deliveried: 0,
+          ontime: 0,
         });
       }
     }

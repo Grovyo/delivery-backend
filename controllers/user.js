@@ -52,30 +52,6 @@ function calculateTotalDistance(coordinates) {
   return totalDistance / 1000;
 }
 
-//minio client configuration
-const minioClient = new Minio.Client({
-  endPoint: "minio.grovyo.xyz",
-
-  useSSL: true,
-  accessKey: "shreyansh379",
-  secretKey: "shreyansh379",
-});
-
-//function to generate a presignedurl of minio
-async function generatePresignedUrl(bucketName, objectName, expiry = 604800) {
-  try {
-    const presignedUrl = await minioClient.presignedGetObject(
-      bucketName,
-      objectName,
-      expiry
-    );
-    return presignedUrl;
-  } catch (err) {
-    console.error(err);
-    throw new Error("Failed to generate presigned URL");
-  }
-}
-
 //firebase initialization for notfication
 admin.initializeApp({
   credential: admin.credential.cert(serviceKey),

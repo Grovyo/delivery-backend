@@ -47,6 +47,7 @@ const deluser = new mongoose.Schema({
       location: { type: [Array] },
     },
   ],
+  rating: { type: Number, default: 0 },
   notificationtoken: { type: String },
 
   currentotp: {
