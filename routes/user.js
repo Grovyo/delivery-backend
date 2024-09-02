@@ -15,6 +15,7 @@ const {
   updateuser,
   deliverystatus,
   verifypic,
+  requestpayout,
 } = require("../controllers/user");
 
 //signup or login user check
@@ -46,5 +47,8 @@ router.get("/deliverystatus/:id", deliverystatus);
 
 //delivery status
 router.post("/verifypic/:id/:dev/:mark", upload.single("image"), verifypic);
+
+//raise a withdrawl request
+router.post("/requestpayout/:id", requestpayout);
 
 module.exports = router;

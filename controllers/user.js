@@ -10,6 +10,7 @@ const Order = require("../models/orders");
 const natural = require("natural");
 const serviceKey = require("../grovyo-e3603-firebase-adminsdk-3jqvt-b10eb47254.json");
 const admin = require("firebase-admin");
+const Withdraw = require("../models/WithdrawRequest");
 const {
   S3Client,
   PutObjectCommand,
@@ -1036,5 +1037,26 @@ const credeli = async ({ storeid, stockid, oid, total }) => {
     }
   } catch (e) {
     console.log(e, "Cannot assign delivery");
+  }
+};
+
+exports.requestpayout = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (user) {
+      await User.updateOne({ _id: user._id }, { $set: { payreq: true } });
+      const withdraw = new Withdraw({
+        userid: user._id,
+        generatedAt: new Date(),
+      });
+      await withdraw.save();
+      res.status(200).json({ success: true });
+    } else {
+      res.status(404).json({ success: false, message: "Something went wrong" });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(400).json({ success: false, message: "Something went wrong" });
   }
 };

@@ -98,8 +98,7 @@ exports.getdashboard = async (req, res) => {
           pending: user.deliveries.length,
           failed: user.deliveries.length,
           cash: user.totalbalance,
-          todayearnings: user.earnings,
-          walletbalance: user.totalbalance,
+          walletbalance: 0,
           deliveried: 0,
           ontime: 0,
         });

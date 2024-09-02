@@ -6,6 +6,7 @@ const deluser = new mongoose.Schema({
   username: { type: String },
   fullname: { type: String },
   adharnumber: { type: Number },
+  payreq: { type: Boolean, default: false },
   accstatus: { type: String, default: "review" },
   attachedid: { type: Number },
   liscenenumber: { type: String },
