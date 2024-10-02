@@ -22,6 +22,10 @@ const {
   updatenotification,
   markdone,
   getstock,
+  deliveryImageUpload,
+  deliveryotpverify,
+  deliverySellerImageUpload,
+  deliverySellerotpverify,
 } = require("../controllers/dashboard");
 
 //dashboard
@@ -68,5 +72,17 @@ router.post("/markdone", upload.single("image"), markdone);
 
 //get stock
 router.get("/getstock/:id", getstock);
+
+router.post("/deliveryImageUpload", upload.any(), deliveryImageUpload);
+
+router.post("/deliveryotpverify", deliveryotpverify);
+
+router.post(
+  "/deliverySellerImageUpload/:id",
+  upload.any(),
+  deliverySellerImageUpload
+);
+
+router.post("/deliverySellerotpverify", deliverySellerotpverify);
 
 module.exports = router;

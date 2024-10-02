@@ -10,6 +10,7 @@ const Appuser = require("../models/userAuth");
 const Order = require("../models/orders");
 const Conversation = require("../models/conversation");
 const Message = require("../models/message");
+const geolib = require("geolib");
 const {
   S3Client,
   PutObjectCommand,
@@ -28,6 +29,21 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_KEY,
   },
 });
+
+//calculate distance
+const caldismoney = async ({ start, end }) => {
+  try {
+    const rawdistance = geolib.getDistance(
+      { latitude: start?.lat, longitude: start?.long },
+      { latitude: end?.lat, longitude: end?.long }
+    );
+    const distance = geolib.convertDistance(rawdistance, "km");
+    const money = Math.ceil(distance * 8);
+    return { distance, money };
+  } catch (e) {
+    console.log("Error calulating distance ", e);
+  }
+};
 
 //function to generate random id
 function generateRandomId() {
@@ -117,43 +133,35 @@ exports.getdashboard = async (req, res) => {
 exports.getallorders = async (req, res) => {
   const { id } = req.params;
   try {
-    const user = await User.findById(id).populate({
-      path: "deliveries",
-      select:
-        "phonenumber pickupaddress droppingaddress amount title orderId status marks data",
-      options: {
-        sort: { createdAt: -1 },
-      },
-    });
+    const user = await User.findById(id)
+      .populate({
+        path: "deliveries",
+        select:
+          "phonenumber pickupaddress droppingaddress amount title orderId status marks data createdAt",
+        options: {
+          sort: { createdAt: -1 },
+        },
+      })
+      .lean();
 
-    if (user) {
-      res.status(200).json({ deliveries: user?.deliveries, success: true });
-    } else {
-      res.status(404).json({ message: "User not found", success: false });
+    let final = [];
+    for (let i = 0; i < user.deliveries.length; i++) {
+      let start = {
+        lat: user.deliveries[i]?.pickupaddress?.coordinates?.latitude || 0,
+        long: user.deliveries[i]?.pickupaddress?.coordinates?.longitude || 0,
+      };
+      let end = {
+        lat: user.deliveries[i]?.droppingaddress?.coordinates?.latitude || 0,
+        long: user.deliveries[i]?.droppingaddress?.coordinates?.longitude || 0,
+      };
+
+      const { distance, money } = await caldismoney({ start, end });
+
+      final.push({ distance, money, deliveries: user?.deliveries[i] });
     }
-  } catch (e) {
-    console.log(e);
-    res
-      .status(400)
-      .json({ message: "Something went wrong...", success: false });
-  }
-};
-
-//list of orders
-exports.getallorders = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const user = await User.findById(id).populate({
-      path: "deliveries",
-      select:
-        "phonenumber pickupaddress droppingaddress amount title orderId status marks data",
-      options: {
-        sort: { createdAt: -1 },
-      },
-    });
 
     if (user) {
-      res.status(200).json({ deliveries: user?.deliveries, success: true });
+      res.status(200).json({ deliveries: final, success: true });
     } else {
       res.status(404).json({ message: "User not found", success: false });
     }
@@ -672,3 +680,204 @@ exports.markdone = async (req, res) => {
 };
 
 //start delivery - delievring to the greatest ordercount store of that area, money divison during delivery per km btw driver and affiliate
+
+exports.deliveryImageUpload = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const files = req.files;
+    for (let i = 0; i < files.length; i++) {
+      const uuidString = uuid();
+      const objectName = `${Date.now()}_${uuidString}_${
+        files[i].originalname
+      };`;
+
+      const result = await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET_PROOF,
+          Key: objectName,
+          Body: files[i].buffer,
+          ContentType: files[i].mimetype,
+        })
+      );
+    }
+
+    const user = await MainUser.findById(id);
+
+    const otp = generateOTP();
+    const data = {
+      code: otp,
+      time: Date.now() + 10 * 60 * 1000,
+    };
+    user.flashotp = data;
+    await user.save();
+
+    const text = `Use the following code to complete your delivery verification:
+		OTP: ${otp}
+		This code is valid for 10 minutes. Please do not share it with anyone.
+		If you didn’t request this, you can ignore this email.`;
+
+    await sendMailToUser(user.email, text)
+      .then(() => {
+        res
+          .status(200)
+          .json({ message: "OTP sent successfully", success: true });
+      })
+      .catch((error) => {
+        console.error("Error sending OTP:", error);
+        res.status(400).json({ message: "Failed to send OTP", success: false });
+      });
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+exports.deliveryotpverify = async (req, res) => {
+  const { otp, id, orderId, deliveryId, delid } = req.body;
+  try {
+    if (!otp) {
+      return res
+        .status(203)
+        .json({ message: "Otp Required", success: false, userexists: false });
+    }
+
+    const user = await MainUser.findById(id);
+
+    if (!user) {
+      return res
+        .status(203)
+        .json({ message: "User not found", success: false, userexists: false });
+    } else {
+      const currentTime = Date.now();
+      const { code, time } = user.flashotp || {};
+
+      if (Number(code) === Number(otp) && currentTime <= time) {
+        user.flashotp = undefined;
+        await user.save();
+
+        const order = await Order.findOne({ orderId });
+
+        order.currentStatus = "success";
+        await order.save();
+
+        const delivery = await Delivery.findById(deliveryId);
+
+        delivery.status = "completed";
+        await delivery.save();
+
+        const deluser = await Deluser.findById(delid);
+
+        deluser.currentdoing = null;
+        await deluser.save();
+
+        res
+          .status(200)
+          .json({ success: true, message: "Otp Validation Success!" });
+      } else {
+        res.status(203).json({
+          message: "Otp Validation Failed!",
+          success: false,
+          otpSuccess: false,
+        });
+      }
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(500).json({
+      message: "Something went wrong...",
+      success: false,
+    });
+  }
+};
+
+exports.deliverySellerImageUpload = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const files = req.files;
+    for (let i = 0; i < files.length; i++) {
+      const uuidString = uuid();
+      const objectName = `${Date.now()}_${uuidString}_${
+        files[i].originalname
+      };`;
+
+      const result = await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET_PROOF,
+          Key: objectName,
+          Body: files[i].buffer,
+          ContentType: files[i].mimetype,
+        })
+      );
+    }
+
+    const user = await MainUser.findById(id);
+
+    console.log(user?.fullname);
+
+    const otp = generateOTP();
+    const data = {
+      code: otp,
+      time: Date.now() + 10 * 60 * 1000,
+    };
+    user.flashotp = data;
+    await user.save();
+
+    const text = `Use the following code to complete your delivery verification: OTP: ${otp}
+		This code is valid for 10 minutes. Please do not share it with anyone.
+		If you didn’t request this, you can ignore this email.`;
+
+    await sendMailToUser(user.email, text)
+      .then(() => {
+        res
+          .status(200)
+          .json({ message: "OTP sent successfully", success: true });
+      })
+      .catch((error) => {
+        console.error("Error sending OTP:", error);
+        res.status(400).json({ message: "Failed to send OTP", success: false });
+      });
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+exports.deliverySellerotpverify = async (req, res) => {
+  const { otp, id } = req.body;
+  try {
+    if (!otp) {
+      return res
+        .status(203)
+        .json({ message: "Otp Required", success: false, userexists: false });
+    }
+    const user = await MainUser.findById(id);
+
+    if (!user) {
+      return res
+        .status(203)
+        .json({ message: "User not found", success: false, userexists: false });
+    } else {
+      const currentTime = Date.now();
+      const { code, time } = user.flashotp || {};
+
+      if (Number(code) === Number(otp) && currentTime <= time) {
+        user.flashotp = undefined;
+        await user.save();
+
+        res
+          .status(200)
+          .json({ success: true, message: "Otp Validation Success!" });
+      } else {
+        res.status(203).json({
+          message: "Otp Validation Failed!",
+          success: false,
+          otpSuccess: false,
+        });
+      }
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(500).json({
+      message: "Something went wrong...",
+      success: false,
+    });
+  }
+};
