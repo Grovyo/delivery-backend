@@ -73,16 +73,16 @@ router.post("/markdone", upload.single("image"), markdone);
 //get stock
 router.get("/getstock/:id", getstock);
 
-router.post("/deliveryImageUpload", upload.any(), deliveryImageUpload);
+router.post("/deliveryimageupload/:id", upload.any(), deliveryImageUpload);
 
 router.post("/deliveryotpverify", deliveryotpverify);
 
 router.post(
-  "/deliverySellerImageUpload/:id",
+  "/deliverysellerimageupload/:id",
   upload.any(),
   deliverySellerImageUpload
 );
 
-router.post("/deliverySellerotpverify", deliverySellerotpverify);
+router.post("/deliverysellerotpverify", deliverySellerotpverify);
 
 module.exports = router;

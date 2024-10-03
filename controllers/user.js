@@ -699,6 +699,7 @@ exports.changeactive = async (req, res) => {
     if (!user) {
       res.status(404).json({ message: "User not found", success: false });
     } else {
+      console.log(id);
       await User.updateOne(
         { _id: user._id },
         {

@@ -137,7 +137,7 @@ exports.getallorders = async (req, res) => {
       .populate({
         path: "deliveries",
         select:
-          "phonenumber pickupaddress droppingaddress amount title orderId status marks data createdAt",
+          "phonenumber pickupaddress droppingaddress amount title orderId status marks data createdAt currentstatus",
         options: {
           sort: { createdAt: -1 },
         },
@@ -685,6 +685,7 @@ exports.deliveryImageUpload = async (req, res) => {
   try {
     const { id } = req.params;
     const files = req.files;
+    const del = await Delivery.findById(id);
     for (let i = 0; i < files.length; i++) {
       const uuidString = uuid();
       const objectName = `${Date.now()}_${uuidString}_${
@@ -693,39 +694,53 @@ exports.deliveryImageUpload = async (req, res) => {
 
       const result = await s3.send(
         new PutObjectCommand({
-          Bucket: BUCKET_PROOF,
+          Bucket: BUCKET_NAME,
           Key: objectName,
           Body: files[i].buffer,
           ContentType: files[i].mimetype,
         })
       );
+      await Delivery.updateOne(
+        { _id: id },
+        {
+          $push: { proofs: objectName },
+          $set: { currentstatus: "drop", status: "completed" },
+        }
+      );
+      await User.updateOne(
+        { _id: del?.partner },
+        {
+          $set: { currentdoing: null },
+        }
+      );
     }
 
-    const user = await MainUser.findById(id);
+    res.status(200).json({ success: true });
+    // const user = await MainUser.findById(id);
 
-    const otp = generateOTP();
-    const data = {
-      code: otp,
-      time: Date.now() + 10 * 60 * 1000,
-    };
-    user.flashotp = data;
-    await user.save();
+    // const otp = generateOTP();
+    // const data = {
+    //   code: otp,
+    //   time: Date.now() + 10 * 60 * 1000,
+    // };
+    // user.flashotp = data;
+    // await user.save();
 
-    const text = `Use the following code to complete your delivery verification:
-		OTP: ${otp}
-		This code is valid for 10 minutes. Please do not share it with anyone.
-		If you didn’t request this, you can ignore this email.`;
+    // const text = `Use the following code to complete your delivery verification:
+    // OTP: ${otp}
+    // This code is valid for 10 minutes. Please do not share it with anyone.
+    // If you didn’t request this, you can ignore this email.`;
 
-    await sendMailToUser(user.email, text)
-      .then(() => {
-        res
-          .status(200)
-          .json({ message: "OTP sent successfully", success: true });
-      })
-      .catch((error) => {
-        console.error("Error sending OTP:", error);
-        res.status(400).json({ message: "Failed to send OTP", success: false });
-      });
+    // await sendMailToUser(user.email, text)
+    //   .then(() => {
+    // res
+    //   .status(200)
+    //   .json({ message: "OTP sent successfully", success: true });
+    //   })
+    //   .catch((error) => {
+    //     console.error("Error sending OTP:", error);
+    //     res.status(400).json({ message: "Failed to send OTP", success: false });
+    //   });
   } catch (error) {
     console.log(error);
   }
@@ -801,40 +816,43 @@ exports.deliverySellerImageUpload = async (req, res) => {
 
       const result = await s3.send(
         new PutObjectCommand({
-          Bucket: BUCKET_PROOF,
+          Bucket: BUCKET_NAME,
           Key: objectName,
           Body: files[i].buffer,
           ContentType: files[i].mimetype,
         })
       );
+      await Delivery.updateOne(
+        { _id: id },
+        { $push: { proofs: objectName }, $set: { currentstatus: "drop" } }
+      );
     }
 
-    const user = await MainUser.findById(id);
+    res.status(200).json({ success: true });
+    // console.log(user?.fullname);
 
-    console.log(user?.fullname);
+    // const otp = generateOTP();
+    // const data = {
+    //   code: otp,
+    //   time: Date.now() + 10 * 60 * 1000,
+    // };
+    // user.flashotp = data;
+    // await user.save();
 
-    const otp = generateOTP();
-    const data = {
-      code: otp,
-      time: Date.now() + 10 * 60 * 1000,
-    };
-    user.flashotp = data;
-    await user.save();
+    // const text = `Use the following code to complete your delivery verification: OTP: ${otp}
+    // This code is valid for 10 minutes. Please do not share it with anyone.
+    // If you didn’t request this, you can ignore this email.`;
 
-    const text = `Use the following code to complete your delivery verification: OTP: ${otp}
-		This code is valid for 10 minutes. Please do not share it with anyone.
-		If you didn’t request this, you can ignore this email.`;
-
-    await sendMailToUser(user.email, text)
-      .then(() => {
-        res
-          .status(200)
-          .json({ message: "OTP sent successfully", success: true });
-      })
-      .catch((error) => {
-        console.error("Error sending OTP:", error);
-        res.status(400).json({ message: "Failed to send OTP", success: false });
-      });
+    // await sendMailToUser(user.email, text)
+    //   .then(() => {
+    //     res
+    //       .status(200)
+    //       .json({ message: "OTP sent successfully", success: true });
+    //   })
+    //   .catch((error) => {
+    //     console.error("Error sending OTP:", error);
+    //     res.status(400).json({ message: "Failed to send OTP", success: false });
+    //   });
   } catch (error) {
     console.log(error);
   }

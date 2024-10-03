@@ -12,6 +12,7 @@ const deliveries = new mongoose.Schema(
     partner: { type: ObjectId, ref: "DelUser" },
     mode: { type: String },
     status: { type: String, default: "Not started" },
+    currentstatus: { type: String, default: "pick" },
     reason: { type: String },
     pickupaddress: {
       streetaddress: { type: String },
@@ -74,6 +75,7 @@ const deliveries = new mongoose.Schema(
     affid: { type: ObjectId, ref: "DelUser" },
     buyer: { type: ObjectId, ref: "User" },
     from: String,
+    proofs: [{ type: String }],
   },
   { timestamps: true }
 );
