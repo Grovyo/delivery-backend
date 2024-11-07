@@ -106,6 +106,8 @@ const deluser = new mongoose.Schema({
   // ],
   deliveries: [{ type: ObjectId, ref: "DeliveriesSchema" }], //total deliveries
   finisheddeliveries: [{ type: ObjectId, ref: "DeliveriesSchema" }], //compeleted deliveries
+  faileddeliveries: [{ type: ObjectId, ref: "DeliveriesSchema" }],
+  pendingdeliveries: [{ type: ObjectId, ref: "DeliveriesSchema" }],
   deliverycount: { type: Number, default: 0 }, //compeleted deliveries count
   deliverypartners: [
     {

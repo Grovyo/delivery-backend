@@ -111,8 +111,8 @@ exports.getdashboard = async (req, res) => {
           status: user.activity,
           totaldeliveries: user.deliveries.length,
           deliveries: user.deliveries.length, //latest 10 deliveries
-          pending: user.deliveries.length,
-          failed: user.deliveries.length,
+          pending: user.pendingdeliveries.length,
+          failed: user.faileddeliveries.length,
           cash: user.totalbalance,
           walletbalance: 0,
           deliveried: 0,
